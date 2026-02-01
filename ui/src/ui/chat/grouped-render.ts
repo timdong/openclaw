@@ -270,7 +270,13 @@ function renderGroupedMessage(
     )}`;
   }
 
-  if (!markdown && !hasToolCards && !hasImages) return nothing;
+  // Show fallback when assistant has no content (e.g. model returned empty or run failed silently).
+  if (!markdown && !hasToolCards && !hasImages) {
+    if (role === "assistant") {
+      return html`<div class="chat-bubble"><div class="chat-text muted">No response.</div></div>`;
+    }
+    return nothing;
+  }
 
   return html`
     <div class="${bubbleClasses}">

@@ -436,6 +436,10 @@ export const chatHandlers: GatewayRequestHandlers = {
         startedAtMs: now,
         expiresAtMs: resolveChatRunExpiresAtMs({ now, timeoutMs }),
       });
+      context.addChatRun(clientRunId, {
+        sessionKey: p.sessionKey,
+        clientRunId,
+      });
 
       const ackPayload = {
         runId: clientRunId,
@@ -515,40 +519,41 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       })
         .then(() => {
-          if (!agentRunStarted) {
-            const combinedReply = finalReplyParts
-              .map((part) => part.trim())
-              .filter(Boolean)
-              .join("\n\n")
-              .trim();
+          // When block streaming is disabled (e.g. webchat), final text is delivered via
+          // dispatcher.deliver into finalReplyParts but never streamed, so the event handler
+          // sends "final" with an empty buffer. Use finalReplyParts here so the UI gets the reply.
+          const combinedReply = finalReplyParts
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join("\n\n")
+            .trim();
+          if (combinedReply) {
             let message: Record<string, unknown> | undefined;
-            if (combinedReply) {
-              const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(
-                p.sessionKey,
+            const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(
+              p.sessionKey,
+            );
+            const sessionId = latestEntry?.sessionId ?? entry?.sessionId ?? clientRunId;
+            const appended = appendAssistantTranscriptMessage({
+              message: combinedReply,
+              sessionId,
+              storePath: latestStorePath,
+              sessionFile: latestEntry?.sessionFile,
+              createIfMissing: true,
+            });
+            if (appended.ok) {
+              message = appended.message;
+            } else {
+              context.logGateway.warn(
+                `webchat transcript append failed: ${appended.error ?? "unknown error"}`,
               );
-              const sessionId = latestEntry?.sessionId ?? entry?.sessionId ?? clientRunId;
-              const appended = appendAssistantTranscriptMessage({
-                message: combinedReply,
-                sessionId,
-                storePath: latestStorePath,
-                sessionFile: latestEntry?.sessionFile,
-                createIfMissing: true,
-              });
-              if (appended.ok) {
-                message = appended.message;
-              } else {
-                context.logGateway.warn(
-                  `webchat transcript append failed: ${appended.error ?? "unknown error"}`,
-                );
-                const now = Date.now();
-                message = {
-                  role: "assistant",
-                  content: [{ type: "text", text: combinedReply }],
-                  timestamp: now,
-                  stopReason: "injected",
-                  usage: { input: 0, output: 0, totalTokens: 0 },
-                };
-              }
+              const now = Date.now();
+              message = {
+                role: "assistant",
+                content: [{ type: "text", text: combinedReply }],
+                timestamp: now,
+                stopReason: "injected",
+                usage: { input: 0, output: 0, totalTokens: 0 },
+              };
             }
             broadcastChatFinal({
               context,
@@ -564,14 +569,18 @@ export const chatHandlers: GatewayRequestHandlers = {
           });
         })
         .catch((err) => {
-          const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));
+          const errorMessage = String(err);
+          context.logGateway.error(
+            `chat.send agent run failed runId=${clientRunId} sessionKey=${p.sessionKey}: ${formatForLog(err)}`,
+          );
+          const error = errorShape(ErrorCodes.UNAVAILABLE, errorMessage);
           context.dedupe.set(`chat:${clientRunId}`, {
             ts: Date.now(),
             ok: false,
             payload: {
               runId: clientRunId,
               status: "error" as const,
-              summary: String(err),
+              summary: errorMessage,
             },
             error,
           });
@@ -579,13 +588,16 @@ export const chatHandlers: GatewayRequestHandlers = {
             context,
             runId: clientRunId,
             sessionKey: p.sessionKey,
-            errorMessage: String(err),
+            errorMessage,
           });
         })
         .finally(() => {
           context.chatAbortControllers.delete(clientRunId);
         });
     } catch (err) {
+      context.logGateway.error(
+        `chat.send failed runId=${clientRunId} sessionKey=${p.sessionKey}: ${formatForLog(err)}`,
+      );
       const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));
       const payload = {
         runId: clientRunId,
