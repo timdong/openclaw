@@ -29,6 +29,7 @@ export type AuthChoice =
   | "minimax-api"
   | "minimax-api-lightning"
   | "opencode-zen"
+  | "siliconflow-api-key"
   | "github-copilot"
   | "copilot-proxy"
   | "qwen-portal"
@@ -72,6 +73,7 @@ export type OnboardOptions = {
   minimaxApiKey?: string;
   syntheticApiKey?: string;
   veniceApiKey?: string;
+  siliconflowApiKey?: string;
   opencodeZenApiKey?: string;
   gatewayPort?: number;
   gatewayBind?: GatewayBind;

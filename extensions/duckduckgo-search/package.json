@@ -1,0 +1,14 @@
+{
+  "name": "@openclaw/duckduckgo-search",
+  "version": "0.1.0",
+  "description": "DuckDuckGo search plugin for OpenClaw (free, no API key required)",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "duck-duck-scrape": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

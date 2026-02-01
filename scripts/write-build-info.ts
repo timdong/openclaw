@@ -46,3 +46,11 @@ fs.writeFileSync(
   path.join(distDir, "build-info.json"),
   `${JSON.stringify(buildInfo, null, 2)}\n`,
 );
+
+// Ensure entry.js exists (tsdown generates entry.mjs, but openclaw.mjs expects entry.js)
+const entryMjs = path.join(distDir, "entry.mjs");
+const entryJs = path.join(distDir, "entry.js");
+if (fs.existsSync(entryMjs) && !fs.existsSync(entryJs)) {
+  fs.copyFileSync(entryMjs, entryJs);
+  fs.chmodSync(entryJs, 0o755);
+}

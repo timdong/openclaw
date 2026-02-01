@@ -52,6 +52,17 @@ const MOONSHOT_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+const SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+const SILICONFLOW_DEFAULT_MODEL_ID = "Pro/MiniMaxAI/MiniMax-M2.1";
+const SILICONFLOW_DEFAULT_CONTEXT_WINDOW = 200000;
+const SILICONFLOW_DEFAULT_MAX_TOKENS = 8192;
+const SILICONFLOW_DEFAULT_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+};
+
 const QWEN_PORTAL_BASE_URL = "https://portal.qwen.ai/v1";
 const QWEN_PORTAL_OAUTH_PLACEHOLDER = "qwen-oauth";
 const QWEN_PORTAL_DEFAULT_CONTEXT_WINDOW = 128000;
@@ -356,6 +367,24 @@ export function buildXiaomiProvider(): ProviderConfig {
   };
 }
 
+function buildSiliconflowProvider(): ProviderConfig {
+  return {
+    baseUrl: SILICONFLOW_BASE_URL,
+    api: "openai-completions",
+    models: [
+      {
+        id: SILICONFLOW_DEFAULT_MODEL_ID,
+        name: "MiniMax M2.1 (硅基流动)",
+        reasoning: false,
+        input: ["text"],
+        cost: SILICONFLOW_DEFAULT_COST,
+        contextWindow: SILICONFLOW_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: SILICONFLOW_DEFAULT_MAX_TOKENS,
+      },
+    ],
+  };
+}
+
 async function buildVeniceProvider(): Promise<ProviderConfig> {
   const models = await discoverVeniceModels();
   return {
@@ -408,6 +437,13 @@ export async function resolveImplicitProviders(params: {
     resolveApiKeyFromProfiles({ provider: "venice", store: authStore });
   if (veniceKey) {
     providers.venice = { ...(await buildVeniceProvider()), apiKey: veniceKey };
+  }
+
+  const siliconflowKey =
+    resolveEnvApiKeyVarName("siliconflow") ??
+    resolveApiKeyFromProfiles({ provider: "siliconflow", store: authStore });
+  if (siliconflowKey) {
+    providers.siliconflow = { ...buildSiliconflowProvider(), apiKey: siliconflowKey };
   }
 
   const qwenProfiles = listProfilesForProvider(authStore, "qwen-portal");

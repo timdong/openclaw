@@ -21,6 +21,8 @@ import {
   applyOpencodeZenProviderConfig,
   applyOpenrouterConfig,
   applyOpenrouterProviderConfig,
+  applySiliconflowConfig,
+  applySiliconflowProviderConfig,
   applySyntheticConfig,
   applySyntheticProviderConfig,
   applyVeniceConfig,
@@ -33,6 +35,7 @@ import {
   KIMI_CODING_MODEL_REF,
   MOONSHOT_DEFAULT_MODEL_REF,
   OPENROUTER_DEFAULT_MODEL_REF,
+  SILICONFLOW_DEFAULT_MODEL_REF,
   SYNTHETIC_DEFAULT_MODEL_REF,
   VENICE_DEFAULT_MODEL_REF,
   VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF,
@@ -42,6 +45,7 @@ import {
   setMoonshotApiKey,
   setOpencodeZenApiKey,
   setOpenrouterApiKey,
+  setSiliconflowApiKey,
   setSyntheticApiKey,
   setVeniceApiKey,
   setVercelAiGatewayApiKey,
@@ -96,6 +100,8 @@ export async function applyAuthChoiceApiProviders(
       authChoice = "venice-api-key";
     } else if (params.opts.tokenProvider === "opencode") {
       authChoice = "opencode-zen";
+    } else if (params.opts.tokenProvider === "siliconflow") {
+      authChoice = "siliconflow-api-key";
     }
   }
 
@@ -168,6 +174,84 @@ export async function applyAuthChoiceApiProviders(
         applyDefaultConfig: applyOpenrouterConfig,
         applyProviderConfig: applyOpenrouterProviderConfig,
         noteDefault: OPENROUTER_DEFAULT_MODEL_REF,
+        noteAgentModel,
+        prompter: params.prompter,
+      });
+      nextConfig = applied.config;
+      agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+    }
+    return { config: nextConfig, agentModelOverride };
+  }
+
+  if (authChoice === "siliconflow-api-key") {
+    const store = ensureAuthProfileStore(params.agentDir, {
+      allowKeychainPrompt: false,
+    });
+    const profileOrder = resolveAuthProfileOrder({
+      cfg: nextConfig,
+      store,
+      provider: "siliconflow",
+    });
+    const existingProfileId = profileOrder.find((profileId) => Boolean(store.profiles[profileId]));
+    const existingCred = existingProfileId ? store.profiles[existingProfileId] : undefined;
+    let profileId = "siliconflow:default";
+    let mode: "api_key" | "oauth" | "token" = "api_key";
+    let hasCredential = false;
+
+    if (existingProfileId && existingCred?.type) {
+      profileId = existingProfileId;
+      mode =
+        existingCred.type === "oauth"
+          ? "oauth"
+          : existingCred.type === "token"
+            ? "token"
+            : "api_key";
+      hasCredential = true;
+    }
+
+    if (!hasCredential && params.opts?.token && params.opts?.tokenProvider === "siliconflow") {
+      await setSiliconflowApiKey(normalizeApiKeyInput(params.opts.token), params.agentDir);
+      hasCredential = true;
+    }
+
+    if (!hasCredential) {
+      const envKey = resolveEnvApiKey("siliconflow");
+      if (envKey) {
+        const useExisting = await params.prompter.confirm({
+          message: `Use existing SILICONFLOW_API_KEY (${envKey.source}, ${formatApiKeyPreview(envKey.apiKey)})?`,
+          initialValue: true,
+        });
+        if (useExisting) {
+          await setSiliconflowApiKey(envKey.apiKey, params.agentDir);
+          hasCredential = true;
+        }
+      }
+    }
+
+    if (!hasCredential) {
+      const key = await params.prompter.text({
+        message: "Enter 硅基流动 API key",
+        validate: validateApiKeyInput,
+      });
+      await setSiliconflowApiKey(normalizeApiKeyInput(String(key)), params.agentDir);
+      hasCredential = true;
+    }
+
+    if (hasCredential) {
+      nextConfig = applyAuthProfileConfig(nextConfig, {
+        profileId,
+        provider: "siliconflow",
+        mode,
+      });
+    }
+    {
+      const applied = await applyDefaultModelChoice({
+        config: nextConfig,
+        setDefaultModel: params.setDefaultModel,
+        defaultModel: SILICONFLOW_DEFAULT_MODEL_REF,
+        applyDefaultConfig: applySiliconflowConfig,
+        applyProviderConfig: applySiliconflowProviderConfig,
+        noteDefault: SILICONFLOW_DEFAULT_MODEL_REF,
         noteAgentModel,
         prompter: params.prompter,
       });

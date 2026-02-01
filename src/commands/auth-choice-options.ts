@@ -21,6 +21,7 @@ export type AuthChoiceGroupId =
   | "minimax"
   | "synthetic"
   | "venice"
+  | "siliconflow"
   | "qwen";
 
 export type AuthChoiceGroup = {
@@ -120,6 +121,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     hint: "Privacy-focused (uncensored models)",
     choices: ["venice-api-key"],
   },
+  {
+    value: "siliconflow",
+    label: "硅基流动 (Siliconflow)",
+    hint: "Pro/MiniMaxAI/MiniMax-M2.1 等",
+    choices: ["siliconflow-api-key"],
+  },
 ];
 
 export function buildAuthChoiceOptions(params: {
@@ -153,6 +160,11 @@ export function buildAuthChoiceOptions(params: {
     value: "venice-api-key",
     label: "Venice AI API key",
     hint: "Privacy-focused inference (uncensored models)",
+  });
+  options.push({
+    value: "siliconflow-api-key",
+    label: "硅基流动 API key",
+    hint: "Pro/MiniMaxAI/MiniMax-M2.1 等",
   });
   options.push({
     value: "github-copilot",

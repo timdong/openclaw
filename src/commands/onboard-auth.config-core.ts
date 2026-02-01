@@ -14,6 +14,7 @@ import {
 import type { OpenClawConfig } from "../config/config.js";
 import {
   OPENROUTER_DEFAULT_MODEL_REF,
+  SILICONFLOW_DEFAULT_MODEL_REF,
   VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF,
   XIAOMI_DEFAULT_MODEL_REF,
   ZAI_DEFAULT_MODEL_REF,
@@ -130,6 +131,47 @@ export function applyOpenrouterConfig(cfg: OpenClawConfig): OpenClawConfig {
               }
             : undefined),
           primary: OPENROUTER_DEFAULT_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+export function applySiliconflowProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[SILICONFLOW_DEFAULT_MODEL_REF] = {
+    ...models[SILICONFLOW_DEFAULT_MODEL_REF],
+    alias: models[SILICONFLOW_DEFAULT_MODEL_REF]?.alias ?? "硅基流动 MiniMax M2.1",
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+  };
+}
+
+export function applySiliconflowConfig(cfg: OpenClawConfig): OpenClawConfig {
+  const next = applySiliconflowProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: SILICONFLOW_DEFAULT_MODEL_REF,
         },
       },
     },

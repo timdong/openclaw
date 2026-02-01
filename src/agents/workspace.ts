@@ -29,10 +29,20 @@ export const DEFAULT_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
 export const DEFAULT_MEMORY_FILENAME = "MEMORY.md";
 export const DEFAULT_MEMORY_ALT_FILENAME = "memory.md";
 
-const TEMPLATE_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../docs/reference/templates",
-);
+function resolveTemplateDir(): string {
+  const fromModule = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../docs/reference/templates",
+  );
+  return fromModule;
+}
+
+function getTemplateDirCandidates(): string[] {
+  const fromModule = resolveTemplateDir();
+  const fromCwd = path.join(process.cwd(), "docs/reference/templates");
+  // Prefer cwd so "pnpm openclaw onboard" from repo root finds templates when dist/ is used.
+  return [fromCwd, fromModule];
+}
 
 function stripFrontMatter(content: string): string {
   if (!content.startsWith("---")) {
@@ -49,15 +59,20 @@ function stripFrontMatter(content: string): string {
 }
 
 async function loadTemplate(name: string): Promise<string> {
-  const templatePath = path.join(TEMPLATE_DIR, name);
-  try {
-    const content = await fs.readFile(templatePath, "utf-8");
-    return stripFrontMatter(content);
-  } catch {
-    throw new Error(
-      `Missing workspace template: ${name} (${templatePath}). Ensure docs/reference/templates are packaged.`,
-    );
+  const candidates = getTemplateDirCandidates();
+  for (const dir of candidates) {
+    const templatePath = path.join(dir, name);
+    try {
+      const content = await fs.readFile(templatePath, "utf-8");
+      return stripFrontMatter(content);
+    } catch {
+      continue;
+    }
   }
+  const lastTried = path.join(candidates[candidates.length - 1], name);
+  throw new Error(
+    `Missing workspace template: ${name} (${lastTried}). Ensure docs/reference/templates are packaged or run from repo root.`,
+  );
 }
 
 export type WorkspaceBootstrapFileName =
