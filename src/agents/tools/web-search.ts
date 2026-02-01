@@ -16,8 +16,9 @@ import {
   withTimeout,
   writeCache,
 } from "./web-shared.js";
+import { SafeSearchType, search as duckDuckGoSearch } from "duck-duck-scrape";
 
-const SEARCH_PROVIDERS = ["brave", "perplexity"] as const;
+const SEARCH_PROVIDERS = ["brave", "perplexity", "duckduckgo"] as const;
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -84,6 +85,19 @@ type BraveSearchResponse = {
   };
 };
 
+type DuckDuckGoSearchResult = {
+  title?: string;
+  url?: string;
+  description?: string;
+  icon?: string;
+};
+
+type DuckDuckGoSearchResponse = {
+  results: DuckDuckGoSearchResult[];
+  noResults?: boolean;
+  vqd?: string;
+};
+
 type PerplexityConfig = {
   apiKey?: string;
   baseUrl?: string;
@@ -137,6 +151,13 @@ function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
       docs: "https://docs.openclaw.ai/tools/web",
     };
   }
+  if (provider === "duckduckgo") {
+    return {
+      error: "duckduckgo_no_key_needed",
+      message: "DuckDuckGo search does not require an API key.",
+      docs: "https://docs.openclaw.ai/tools/web",
+    };
+  }
   return {
     error: "missing_brave_api_key",
     message: `web_search needs a Brave Search API key. Run \`${formatCliCommand("openclaw configure --section web")}\` to store it, or set BRAVE_API_KEY in the Gateway environment.`,
@@ -152,10 +173,15 @@ function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDE
   if (raw === "perplexity") {
     return "perplexity";
   }
+  if (raw === "duckduckgo") {
+    return "duckduckgo";
+  }
   if (raw === "brave") {
     return "brave";
   }
-  return "brave";
+  // 默认：如果没有配置 API key，使用 DuckDuckGo（免费）
+  const hasBraveKey = Boolean(resolveSearchApiKey(search));
+  return hasBraveKey ? "brave" : "duckduckgo";
 }
 
 function resolvePerplexityConfig(search?: WebSearchConfig): PerplexityConfig {
@@ -350,6 +376,45 @@ async function runPerplexitySearch(params: {
   return { content, citations };
 }
 
+const DUCKDUCKGO_RETRY_DELAY_MS = 1500;
+const DUCKDUCKGO_MAX_RETRIES = 2;
+
+async function runDuckDuckGoSearch(params: {
+  query: string;
+  count: number;
+  timeoutSeconds: number;
+  country?: string;
+  search_lang?: string;
+}): Promise<DuckDuckGoSearchResponse> {
+  // 映射国家代码（DuckDuckGo 使用小写，如 "us", "cn", "hk"）
+  const region = params.country?.toLowerCase() || "us";
+
+  const searchOptions = {
+    safeSearch: SafeSearchType.MODERATE,
+    region: region,
+  };
+  const needleOptions = { timeout: params.timeoutSeconds * 1000 };
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= DUCKDUCKGO_MAX_RETRIES; attempt++) {
+    try {
+      const results = await duckDuckGoSearch(params.query, searchOptions, needleOptions);
+      return {
+        results: results.results || [],
+        noResults: results.results?.length === 0,
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const isVqdError = lastError.message.includes("VQD");
+      if (!isVqdError || attempt >= DUCKDUCKGO_MAX_RETRIES) {
+        throw lastError;
+      }
+      await new Promise((r) => setTimeout(r, DUCKDUCKGO_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError ?? new Error("DuckDuckGo search failed");
+}
+
 async function runWebSearch(params: {
   query: string;
   count: number;
@@ -367,7 +432,9 @@ async function runWebSearch(params: {
   const cacheKey = normalizeCacheKey(
     params.provider === "brave"
       ? `${params.provider}:${params.query}:${params.count}:${params.country || "default"}:${params.search_lang || "default"}:${params.ui_lang || "default"}:${params.freshness || "default"}`
-      : `${params.provider}:${params.query}:${params.count}:${params.country || "default"}:${params.search_lang || "default"}:${params.ui_lang || "default"}`,
+      : params.provider === "perplexity"
+        ? `${params.provider}:${params.query}:${params.count}:${params.country || "default"}:${params.search_lang || "default"}:${params.ui_lang || "default"}`
+        : `${params.provider}:${params.query}:${params.count}:${params.country || "default"}:${params.search_lang || "default"}`,
   );
   const cached = readCache(SEARCH_CACHE, cacheKey);
   if (cached) {
@@ -392,6 +459,34 @@ async function runWebSearch(params: {
       tookMs: Date.now() - start,
       content,
       citations,
+    };
+    writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
+    return payload;
+  }
+
+  if (params.provider === "duckduckgo") {
+    const ddgResults = await runDuckDuckGoSearch({
+      query: params.query,
+      count: params.count,
+      timeoutSeconds: params.timeoutSeconds,
+      country: params.country,
+      search_lang: params.search_lang,
+    });
+
+    const mapped = ddgResults.results.slice(0, params.count).map((entry) => ({
+      title: entry.title ?? "",
+      url: entry.url ?? "",
+      description: entry.description ?? "",
+      icon: entry.icon ?? undefined,
+      siteName: resolveSiteName(entry.url ?? ""),
+    }));
+
+    const payload = {
+      query: params.query,
+      provider: params.provider,
+      count: mapped.length,
+      tookMs: Date.now() - start,
+      results: mapped,
     };
     writeCache(SEARCH_CACHE, cacheKey, payload, params.cacheTtlMs);
     return payload;
@@ -467,7 +562,9 @@ export function createWebSearchTool(options?: {
   const description =
     provider === "perplexity"
       ? "Search the web using Perplexity Sonar (direct or via OpenRouter). Returns AI-synthesized answers with citations from real-time web search."
-      : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
+      : provider === "duckduckgo"
+        ? "Search the web using DuckDuckGo (free, no API key required). Returns search results with titles, URLs, and snippets. Privacy-friendly alternative to other search providers."
+        : "Search the web using Brave Search API. Supports region-specific and localized search via country and language parameters. Returns titles, URLs, and snippets for fast research.";
 
   return {
     label: "Web Search",
@@ -478,9 +575,14 @@ export function createWebSearchTool(options?: {
       const perplexityAuth =
         provider === "perplexity" ? resolvePerplexityApiKey(perplexityConfig) : undefined;
       const apiKey =
-        provider === "perplexity" ? perplexityAuth?.apiKey : resolveSearchApiKey(search);
+        provider === "perplexity"
+          ? perplexityAuth?.apiKey
+          : provider === "duckduckgo"
+            ? "" // DuckDuckGo 不需要 API key
+            : resolveSearchApiKey(search);
 
-      if (!apiKey) {
+      // DuckDuckGo 不需要 API key，跳过检查
+      if (provider !== "duckduckgo" && !apiKey) {
         return jsonResult(missingSearchKeyPayload(provider));
       }
       const params = args as Record<string, unknown>;
@@ -507,25 +609,37 @@ export function createWebSearchTool(options?: {
           docs: "https://docs.openclaw.ai/tools/web",
         });
       }
-      const result = await runWebSearch({
-        query,
-        count: resolveSearchCount(count, DEFAULT_SEARCH_COUNT),
-        apiKey,
-        timeoutSeconds: resolveTimeoutSeconds(search?.timeoutSeconds, DEFAULT_TIMEOUT_SECONDS),
-        cacheTtlMs: resolveCacheTtlMs(search?.cacheTtlMinutes, DEFAULT_CACHE_TTL_MINUTES),
-        provider,
-        country,
-        search_lang,
-        ui_lang,
-        freshness,
-        perplexityBaseUrl: resolvePerplexityBaseUrl(
-          perplexityConfig,
-          perplexityAuth?.source,
-          perplexityAuth?.apiKey,
-        ),
-        perplexityModel: resolvePerplexityModel(perplexityConfig),
-      });
-      return jsonResult(result);
+      try {
+        const result = await runWebSearch({
+          query,
+          count: resolveSearchCount(count, DEFAULT_SEARCH_COUNT),
+          apiKey: apiKey ?? "",
+          timeoutSeconds: resolveTimeoutSeconds(search?.timeoutSeconds, DEFAULT_TIMEOUT_SECONDS),
+          cacheTtlMs: resolveCacheTtlMs(search?.cacheTtlMinutes, DEFAULT_CACHE_TTL_MINUTES),
+          provider,
+          country,
+          search_lang,
+          ui_lang,
+          freshness,
+          perplexityBaseUrl: resolvePerplexityBaseUrl(
+            perplexityConfig,
+            perplexityAuth?.source,
+            perplexityAuth?.apiKey,
+          ),
+          perplexityModel: resolvePerplexityModel(perplexityConfig),
+        });
+        return jsonResult(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const isVqdError = message.includes("VQD");
+        return jsonResult({
+          error: "search_failed",
+          message: isVqdError
+            ? "DuckDuckGo search temporarily unavailable (VQD error). Try again in a moment, or configure Brave Search (tools.web.search.provider: brave + BRAVE_API_KEY) for more reliable results."
+            : `Web search failed: ${message}`,
+          docs: "https://docs.openclaw.ai/tools/web",
+        });
+      }
     },
   };
 }
@@ -534,4 +648,5 @@ export const __testing = {
   inferPerplexityBaseUrlFromApiKey,
   resolvePerplexityBaseUrl,
   normalizeFreshness,
+  resolveSearchProvider,
 } as const;

@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { __testing } from "./web-search.js";
 
-const { inferPerplexityBaseUrlFromApiKey, resolvePerplexityBaseUrl, normalizeFreshness } =
-  __testing;
+const {
+  inferPerplexityBaseUrlFromApiKey,
+  resolvePerplexityBaseUrl,
+  normalizeFreshness,
+  resolveSearchProvider,
+} = __testing;
 
 describe("web_search perplexity baseUrl defaults", () => {
   it("detects a Perplexity key prefix", () => {
@@ -67,5 +71,37 @@ describe("web_search freshness normalization", () => {
     expect(normalizeFreshness("2024-13-01to2024-01-31")).toBeUndefined();
     expect(normalizeFreshness("2024-02-30to2024-03-01")).toBeUndefined();
     expect(normalizeFreshness("2024-03-10to2024-03-01")).toBeUndefined();
+  });
+});
+
+describe("web_search provider resolution (DuckDuckGo)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns duckduckgo when provider is explicitly duckduckgo", () => {
+    vi.stubEnv("BRAVE_API_KEY", "key");
+    expect(resolveSearchProvider({ provider: "duckduckgo" })).toBe("duckduckgo");
+  });
+
+  it("returns brave when provider is explicitly brave", () => {
+    vi.stubEnv("BRAVE_API_KEY", "key");
+    expect(resolveSearchProvider({ provider: "brave" })).toBe("brave");
+  });
+
+  it("defaults to duckduckgo when no provider and no BRAVE_API_KEY", () => {
+    vi.stubEnv("BRAVE_API_KEY", "");
+    expect(resolveSearchProvider({})).toBe("duckduckgo");
+    expect(resolveSearchProvider(undefined)).toBe("duckduckgo");
+  });
+
+  it("defaults to brave when no provider but BRAVE_API_KEY is set", () => {
+    vi.stubEnv("BRAVE_API_KEY", "test-key");
+    expect(resolveSearchProvider({})).toBe("brave");
+  });
+
+  it("defaults to brave when no provider but tools.web.search.apiKey is set", () => {
+    vi.stubEnv("BRAVE_API_KEY", "");
+    expect(resolveSearchProvider({ apiKey: "config-key" })).toBe("brave");
   });
 });

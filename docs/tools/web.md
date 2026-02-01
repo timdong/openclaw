@@ -30,10 +30,11 @@ These are **not** browser automation. For JS-heavy sites or logins, use the
 
 | Provider | Pros | Cons | API Key |
 |----------|------|------|---------|
-| **Brave** (default) | Fast, structured results, free tier | Traditional search results | `BRAVE_API_KEY` |
+| **DuckDuckGo** (default when no API key) | Free, no API key, privacy-friendly | Rate limits possible, unofficial API | None |
+| **Brave** | Fast, structured results, free tier | Traditional search results | `BRAVE_API_KEY` |
 | **Perplexity** | AI-synthesized answers, citations, real-time | Requires Perplexity or OpenRouter access | `OPENROUTER_API_KEY` or `PERPLEXITY_API_KEY` |
 
-See [Brave Search setup](/brave-search) and [Perplexity Sonar](/perplexity) for provider-specific details.
+See [DuckDuckGo Search setup](/duckduckgo-search), [Brave Search setup](/brave-search), and [Perplexity Sonar](/perplexity) for provider-specific details.
 
 Set the provider in config:
 
@@ -42,7 +43,22 @@ Set the provider in config:
   tools: {
     web: {
       search: {
-        provider: "brave"  // or "perplexity"
+        provider: "duckduckgo"  // or "brave" or "perplexity"
+      }
+    }
+  }
+}
+```
+
+Example: switch to DuckDuckGo (free, no API key):
+
+```json5
+{
+  tools: {
+    web: {
+      search: {
+        provider: "duckduckgo"
+        // 不需要 apiKey
       }
     }
   }
@@ -145,7 +161,8 @@ Search the web using your configured provider.
 ### Requirements
 
 - `tools.web.search.enabled` must not be `false` (default: enabled)
-- API key for your chosen provider:
+- API key for your chosen provider (DuckDuckGo doesn't need one):
+  - **DuckDuckGo**: No API key needed
   - **Brave**: `BRAVE_API_KEY` or `tools.web.search.apiKey`
   - **Perplexity**: `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY`, or `tools.web.search.perplexity.apiKey`
 

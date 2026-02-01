@@ -2,6 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createWebFetchTool, createWebSearchTool } from "./web-tools.js";
 
+vi.mock("duck-duck-scrape", () => ({
+  search: vi.fn(() =>
+    Promise.resolve({
+      results: [
+        { title: "Test Result", url: "https://example.com", description: "A test snippet" },
+      ],
+    }),
+  ),
+}));
+
 describe("web tools defaults", () => {
   it("enables web_fetch by default (non-sandbox)", () => {
     const tool = createWebFetchTool({ config: {}, sandboxed: false });
@@ -305,5 +315,40 @@ describe("web_search perplexity baseUrl defaults", () => {
 
     expect(mockFetch).toHaveBeenCalled();
     expect(mockFetch.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+  });
+});
+
+describe("web_search DuckDuckGo provider", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses DuckDuckGo when provider is duckduckgo and no API key is needed", async () => {
+    vi.stubEnv("BRAVE_API_KEY", "");
+    const tool = createWebSearchTool({
+      config: { tools: { web: { search: { provider: "duckduckgo" } } } },
+      sandboxed: true,
+    });
+    expect(tool).not.toBeNull();
+
+    const result = await tool?.execute?.(1, { query: "test query" });
+
+    expect(result?.details).toBeDefined();
+    const details = result?.details as Record<string, unknown>;
+    expect(details.provider).toBe("duckduckgo");
+    expect(details.query).toBe("test query");
+    expect(Array.isArray(details.results)).toBe(true);
+    expect((details.results as Array<{ title: string }>)[0]?.title).toBe("Test Result");
+  });
+
+  it("rejects freshness for DuckDuckGo provider", async () => {
+    vi.stubEnv("BRAVE_API_KEY", "");
+    const tool = createWebSearchTool({
+      config: { tools: { web: { search: { provider: "duckduckgo" } } } },
+      sandboxed: true,
+    });
+    const result = await tool?.execute?.(1, { query: "test", freshness: "pw" });
+
+    expect(result?.details).toMatchObject({ error: "unsupported_freshness" });
   });
 });
